@@ -1,0 +1,66 @@
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
+from .models import Subscription
+
+@method_decorator(login_required, name='dispatch')
+class SubscriptionView(APIView):
+    def post(self, request):
+        serializer = SubscriptionSerializer(data=request.data)
+        if serializer.is_valid():
+            subscription = serializer.save(customer=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request):
+        subscriptions = Subscription.objects.filter(customer=request.user)
+        serializer = SubscriptionSerializer(subscriptions, many=True)
+        return Response(serializer.data)
+
+
+from rest_framework import serializers
+from .models import Subscription
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subscription
+        fields = ('id', 'customer', 'product', 'start_date', 'end_date')
+
+    def validate(self, data):
+        # Perform any additional validation here
+        return data
+
+    def create(self, validated_data):
+        subscription = Subscription.objects.create(**validated_data)
+        # Set up logic for payment processing here
+        return subscription
+
+
+
+
+from django.db import models
+from django.contrib.auth.models import User
+from django.utils import timezone
+
+class Subscription(models.Model):
+    customer = models.ForeignKey(User, on_delete=models.CASCADE)
+    product = models.CharField(max_length=255)
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+
+import datetime
+from celery.decorators import periodic_task
+from celery.task.schedules import crontab
+from .models import Subscription
+
+@periodic_task(run_every=crontab(minute=0, hour=0))
+def renew_subscriptions():
+    subscriptions = Subscription.objects.filter(
+        end_date__lte=datetime.datetime.now(),
+        is_active=True
+    )
+    for subscription in subscriptions:
+        # Renew the subscription here
+        subscription
